@@ -14,6 +14,7 @@ alembic
 
 # Configuration
 python-dotenv
+pydantic-settings # ✅ ВОТ ЭТА СТРОЧКА
 
 # AI
 google-generativeai
