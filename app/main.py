@@ -37,22 +37,6 @@ async def health_check():
     return Response(status_code=200)
 
 
-@app.on_event("startup")
-async def on_startup():
-    """Выполняется при старте FastAPI."""
-    # Инициализируем приложение PTB
-    await application.initialize()
-    
-    # Устанавливаем вебхук
-    webhook_url = f"{settings.WEBHOOK_URL}/{settings.TELEGRAM_TOKEN}"
-    logger.info(f"Setting webhook to: {webhook_url}")
-    await application.bot.set_webhook(url=webhook_url)
-
-    # --- НАЧАЛО ДИАГНОСТИЧЕСКОГО КОДА ---
-    # Запускаем нашу фоновую задачу "пульса"
-    asyncio.create_task(stay_alive())
-    # --- КОНЕЦ ДИАГНОСТИЧЕСКОГО КОДА ---
-
 
 @app.post("/{token}")
 async def process_update(token: str, request: Request):
@@ -76,15 +60,6 @@ async def process_update(token: str, request: Request):
     return Response(status_code=200)
 
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Выполняется при остановке FastAPI."""
-    logger.info("Application is shutting down. Deleting webhook...")
-    await application.bot.delete_webhook()
-    await application.shutdown()
-
-
 # Блок для локального запуска
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
