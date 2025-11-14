@@ -1,0 +1,22 @@
+# requirements.txt
+
+# Telegram Bot
+python-telegram-bot[ext]
+
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Database
+sqlalchemy[asyncio]
+psycopg[binary]
+alembic
+
+# Configuration
+python-dotenv
+
+# AI
+google-generativeai
+
+# SQLAlchemy async helper
+greenlet
