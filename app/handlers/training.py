@@ -15,19 +15,26 @@ CURRENT_PHRASE_KEY = 'current_phrase'
 
 async def start_training_logic(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
     """
-    ОСНОВНАЯ ЛОГИКА начала тренировки. Эта функция не зависит от 'update'
+    Основная логика начала тренировки. Эта функция не зависит от 'update'
     и может быть вызвана откуда угодно.
     """
     async with async_session_factory() as session:
         user = await crud.get_user_settings(session, tg_id=user_id)
         
-        if not all([user.level_id, user.topic_id, user.direction]):
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="❗️ Сначала выберите тему, уровень и направление в главном меню!"
-            )
+        # --- УЛУЧШЕННАЯ ПРОВЕРКА НАСТРОЕК ---
+        # Проверяем каждую настройку отдельно и даем пользователю конкретную подсказку.
+        if not user.topic_id:
+            await context.bot.send_message(chat_id=chat_id, text="❗️ Пожалуйста, сначала выберите '📚 Темы' в меню.")
             return
+        if not user.level_id:
+            await context.bot.send_message(chat_id=chat_id, text="❗️ Пожалуйста, сначала выберите '📈 Уровень' в меню.")
+            return
+        if not user.direction:
+            await context.bot.send_message(chat_id=chat_id, text="❗️ Пожалуйста, сначала выберите '🔁 Направление' в меню.")
+            return
+        # --- КОНЕЦ УЛУЧШЕННОЙ ПРОВЕРКИ ---
 
+        # Этот код теперь будет выполняться только если все настройки на месте
         phrase = await crud.get_random_phrase(session, user)
 
     if not phrase:
@@ -89,7 +96,7 @@ async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await crud.save_user_progress(
-            session, user_id=user.id, phrase_id=original_phrase.id, score=ai_feedback['score']
+            session, user_id=user.id, phrase_id=original_phrase.id, score=ai_feedback.get('score', 0)
         )
 
     score = ai_feedback.get('score', 0)
