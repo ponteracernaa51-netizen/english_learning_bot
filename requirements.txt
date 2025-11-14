@@ -21,3 +21,7 @@ google-generativeai
 
 # SQLAlchemy async helper
 greenlet
+
+fastapi
+uvicorn[standard]
+gunicorn # ✅ НОВАЯ СТРОКА
