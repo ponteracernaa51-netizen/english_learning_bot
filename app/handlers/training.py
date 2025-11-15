@@ -5,21 +5,31 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
-from google.api_core import exceptions as google_exceptions ### ДОБАВЛЕНО ###
+from google.api_core import exceptions as google_exceptions
 
 from app import crud, keyboards, gemini
 from app.database import async_session_factory
 
 logger = logging.getLogger(__name__)
 
-# CURRENT_PHRASE_KEY = 'current_phrase' ### ИЗМЕНЕНО: Эта переменная больше не нужна
+### ДОБАВЛЕНО: Ключи для управления состоянием в user_data ###
+# Ключ для хранения текущей фразы
+CURRENT_PHRASE_KEY = 'current_phrase'
+# Ключ для хранения текущего "режима" пользователя
+USER_STATE_KEY = 'user_state'
+# Название состояния, когда мы ждем перевод
+STATE_AWAITING_TRANSLATION = 'awaiting_translation'
 
 
 async def start_training_logic(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
     """
-    Основная логика начала тренировки. Эта функция не зависит от 'update'
-    и может быть вызвана откуда угодно.
+    Основная логика начала тренировки.
     """
+    ### ИЗМЕНЕНО: Проверка, не ждем ли мы уже перевод ###
+    if context.user_data.get(USER_STATE_KEY) == STATE_AWAITING_TRANSLATION:
+        await context.bot.send_message(chat_id=chat_id, text="❗️ Пожалуйста, сначала завершите перевод текущей фразы.")
+        return
+
     async with async_session_factory() as session:
         user = await crud.get_user_settings(session, tg_id=user_id)
         
@@ -42,26 +52,22 @@ async def start_training_logic(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
         )
         return
 
+    ### ИЗМЕНЕНО: Возвращаемся к хранению в user_data, но теперь безопасно ###
+    # Сохраняем фразу для последующей проверки
+    context.user_data[CURRENT_PHRASE_KEY] = phrase
+    # Переключаем пользователя в режим ожидания перевода
+    context.user_data[USER_STATE_KEY] = STATE_AWAITING_TRANSLATION
+    
     source_lang, _ = user.direction.split('-')
     text_to_translate = getattr(phrase, f'text_{source_lang}')
     
     safe_text_to_translate = escape_markdown(text_to_translate, version=2)
     
-    ### ИЗМЕНЕНО: Полностью переработана логика сохранения состояния ###
-    # 1. Отправляем сообщение и СОХРАНЯЕМ его
-    sent_message = await context.bot.send_message(
+    await context.bot.send_message(
         chat_id=chat_id,
         text=f"Переведите фразу:\n\n`{safe_text_to_translate}`",
         parse_mode=ParseMode.MARKDOWN_V2
     )
-
-    # 2. Инициализируем словарь для отслеживания, если его еще нет
-    if 'pending_translations' not in context.chat_data:
-        context.chat_data['pending_translations'] = {}
-
-    # 3. Создаем связь: ID сообщения -> ID фразы. Теперь бот точно знает, на какой вопрос ждут ответ.
-    context.chat_data['pending_translations'][sent_message.message_id] = phrase.id
-
 
 async def start_training_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик для текстовой команды '▶ Начать тренировку'."""
@@ -71,46 +77,33 @@ async def start_training_command(update: Update, context: ContextTypes.DEFAULT_T
         user_id=update.effective_user.id
     )
 
-
 async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    ### ИЗМЕНЕНО: Функция полностью переписана для работы с ответами на сообщения ###
-    Проверяет перевод, отправленный пользователем В ОТВЕТ на сообщение бота.
+    ### ИЗМЕНЕНО: Функция теперь проверяет состояние пользователя, а не ответ на сообщение ###
+    Проверяет перевод, если пользователь находится в режиме ожидания.
     """
-    # 1. Проверяем, является ли это ответом на сообщение нашего бота
-    if not update.message.reply_to_message or update.message.reply_to_message.from_user.id != context.bot.id:
-        # Если это просто текст, можно мягко подсказать, что делать
-        await update.message.reply_text(
-            "Чтобы я понял, что вы переводите, пожалуйста, отвечайте (reply) на мое сообщение с фразой.",
-            disable_notification=True
-        )
+    # 1. Проверяем, находится ли пользователь в нужном нам состоянии
+    if context.user_data.get(USER_STATE_KEY) != STATE_AWAITING_TRANSLATION:
+        # Если нет, то это случайное сообщение. Можно его проигнорировать или ответить.
+        await update.message.reply_text("Чтобы начать, нажмите '▶ Начать тренировку' в меню.")
         return
 
-    original_message_id = update.message.reply_to_message.message_id
-    
-    # 2. Получаем ID фразы из нашего нового хранилища chat_data
-    pending_translations = context.chat_data.get('pending_translations', {})
-    phrase_id = pending_translations.get(original_message_id)
-
-    if not phrase_id:
-        await update.message.reply_text("Это уже устаревшая фраза. Давайте попробуем новую! Нажмите '▶️ Следующая фраза'.")
+    # 2. Получаем сохраненную фразу из user_data
+    original_phrase = context.user_data.get(CURRENT_PHRASE_KEY)
+    if not original_phrase:
+        # На всякий случай, если что-то пошло не так
+        await update.message.reply_text("Произошла ошибка, не могу найти исходную фразу. Давайте начнем заново.")
+        context.user_data.clear() # Очищаем состояние
         return
 
     user_translation = update.message.text
     user_id = update.effective_user.id
     
     async with async_session_factory() as session:
-        # 3. Получаем оригинальную фразу и пользователя из БД по ID
         user = await crud.get_user_settings(session, tg_id=user_id)
-        original_phrase = await crud.get_phrase_by_id(session, phrase_id)
-
-        if not original_phrase or not user:
-            await update.message.reply_text("Не удалось найти данные для проверки. Попробуйте начать заново.")
-            return
-
+        
         processing_message = await update.message.reply_text("🧠 Анализирую ваш перевод...")
         
-        # 4. Улучшенная обработка ошибок API
         try:
             ai_feedback = await gemini.check_user_translation(
                 original_phrase=original_phrase,
@@ -125,8 +118,10 @@ async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await processing_message.edit_text("😕 Произошла ошибка при обращении к AI. Попробуйте позже.")
             return
         finally:
-            # 5. ОЧЕНЬ ВАЖНО: Удаляем ID из отслеживания, чтобы на него нельзя было ответить дважды
-            pending_translations.pop(original_message_id, None)
+            ### ИЗМЕНЕНО: Очищаем состояние после проверки ###
+            # Убираем пользователя из режима ожидания, чтобы он мог запросить новую фразу
+            context.user_data.pop(USER_STATE_KEY, None)
+            context.user_data.pop(CURRENT_PHRASE_KEY, None)
 
         await crud.save_user_progress(
             session, user_id=user.id, phrase_id=original_phrase.id, score=ai_feedback.get('score', 0)
@@ -151,7 +146,6 @@ async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.after_training_keyboard(user.language)
     )
-
 
 async def next_phrase_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик для inline-кнопки '▶️ Следующая фраза'."""
