@@ -13,13 +13,13 @@ genai.configure(api_key=settings.GEMINI_API_KEY)
 # --- Выбор модели ---
 # Рекомендуется использовать 'gemini-1.5-flash-latest'.
 # Это самая быстрая и экономичная модель, идеально подходящая для чат-бота.
-# Если она не работает (требует обновления библиотеки: pip install --upgrade google-generativeai),
-# можете вернуться к 'gemini-pro-latest'.
+# Если она не работает, убедитесь, что вы обновили библиотеку:
+# pip install --upgrade google-generativeai
 model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
-# Настройка для генерации контента
+# Настройка для генерации контента, которая просит модель СТРОГО придерживаться JSON
 generation_config = genai.GenerationConfig(
-    response_mime_type="application/json", # Просим модель СТРОГО придерживаться JSON
+    response_mime_type="application/json",
 )
 
 
@@ -67,7 +67,7 @@ async def check_user_translation(original_phrase: Phrase, user_translation: str,
         )
         
         # Модель с `response_mime_type="application/json"` должна возвращать чистый JSON,
-        # но на всякий случай оставим очистку.
+        # но на всякий случай оставим очистку от возможных маркеров.
         cleaned_response = response.text.strip().lstrip("```json").rstrip("```").strip()
         result = json.loads(cleaned_response)
         return result
