@@ -6,22 +6,17 @@ python-telegram-bot[ext]
 # Web framework
 fastapi
 uvicorn[standard]
+gunicorn
 
 # Database
 sqlalchemy[asyncio]
 psycopg[binary]
-alembic
 
 # Configuration
 python-dotenv
-pydantic-settings # ✅ ВОТ ЭТА СТРОЧКА
 
 # AI
 google-generativeai
 
 # SQLAlchemy async helper
 greenlet
-
-fastapi
-uvicorn[standard]
-gunicorn # ✅ НОВАЯ СТРОКА
