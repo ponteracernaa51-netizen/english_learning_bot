@@ -13,7 +13,11 @@ class User(Base):
     language = Column(String(2), default='ru')
     level_id = Column(Integer, ForeignKey('levels.id'))
     topic_id = Column(Integer, ForeignKey('topics.id'))
-    direction = Column(String(10)) # e.g., 'ru-en'
+    direction = Column(String(10))
+
+    # Поля для управления состоянием в многопроцессной среде
+    state = Column(String(50), nullable=True)
+    current_phrase_id = Column(Integer, nullable=True)
 
     level = relationship("Level")
     topic = relationship("Topic")
@@ -26,7 +30,8 @@ class Level(Base):
     id = Column(Integer, primary_key=True)
     name_ru = Column(String, nullable=False)
     name_en = Column(String, nullable=False)
-    code = Column(String, unique=True, nullable=False) # 'A1', 'B2'
+    name_uz = Column(String, nullable=False) # <-- ДОБАВИТЬ
+    code = Column(String, unique=True, nullable=False)
     sort_order = Column(Integer, default=0)
     
     def __repr__(self):
@@ -37,6 +42,7 @@ class Topic(Base):
     id = Column(Integer, primary_key=True)
     name_ru = Column(String, nullable=False)
     name_en = Column(String, nullable=False)
+    name_uz = Column(String, nullable=False) # <-- ДОБАВИТЬ
     description = Column(String)
 
     def __repr__(self):
