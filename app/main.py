@@ -1,4 +1,5 @@
-# app/main.py (ФИНАЛЬНАЯ ВЕРСИЯ БЕЗ УПРАВЛЕНИЯ ВЕБХУКОМ)
+# app/main.py
+
 import logging
 import asyncio
 from fastapi import FastAPI, Request, Response
@@ -7,6 +8,8 @@ import uvicorn
 
 from app.bot import application
 from app.core.config import settings
+from app.database import engine  # ### ДОБАВЛЕНО: Импортируем engine
+from app.models import Base  # ### ДОБАВЛЕНО: Импортируем Base со всеми моделями
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -15,12 +18,24 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(docs_url=None, redoc_url=None)
 
+### ДОБАВЛЕНО: Функция для создания таблиц ###
+def create_tables():
+    logger.info("Creating database tables if they don't exist...")
+    try:
+        # create_all не является асинхронной, поэтому используем sync_engine
+        Base.metadata.create_all(bind=engine.sync_engine)
+        logger.info("Tables created successfully.")
+    except Exception as e:
+        logger.error(f"Error creating tables: {e}", exc_info=True)
+
 @app.get("/")
 async def health_check():
     return Response(status_code=200)
 
 @app.on_event("startup")
 async def on_startup():
+    # ### ДОБАВЛЕНО: Вызываем создание таблиц перед инициализацией бота ###
+    create_tables() 
     await application.initialize()
     logger.info("Application initialized.")
 
