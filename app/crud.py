@@ -1,4 +1,5 @@
 # app/crud.py
+
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import User, Phrase, Level, Topic, UserProgress
@@ -60,4 +61,10 @@ async def get_user_info(session: AsyncSession, tg_id: int) -> User | None:
         .options(selectinload(User.level), selectinload(User.topic))
         .filter_by(tg_id=tg_id)
     )
+    return result.scalar_one_or_none()
+
+### ДОБАВЛЕНО: Новая функция ###
+async def get_phrase_by_id(session: AsyncSession, phrase_id: int) -> Phrase | None:
+    """Получает конкретную фразу по ее уникальному ID."""
+    result = await session.execute(select(Phrase).filter_by(id=phrase_id))
     return result.scalar_one_or_none()
