@@ -15,7 +15,7 @@ genai.configure(api_key=settings.GEMINI_API_KEY)
 # Это самая быстрая и экономичная модель, идеально подходящая для чат-бота.
 # Если она не работает, убедитесь, что вы обновили библиотеку:
 # pip install --upgrade google-generativeai
-model = genai.GenerativeModel('gemini-1.5-flash-latest')
+model = genai.GenerativeModel('gemini-pro-latest')
 
 # Настройка для генерации контента, которая просит модель СТРОГО придерживаться JSON
 generation_config = genai.GenerationConfig(
@@ -84,3 +84,4 @@ async def check_user_translation(original_phrase: Phrase, user_translation: str,
         logging.error(f"Gemini API quota exceeded: {e}")
         # Пробрасываем ошибку наверх для корректной обработки в `training.py`
         raise e
+
