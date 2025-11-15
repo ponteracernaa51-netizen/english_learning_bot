@@ -12,18 +12,12 @@ from app.database import async_session_factory
 
 logger = logging.getLogger(__name__)
 
-# Название состояния, которое мы будем хранить в БД
 STATE_AWAITING_TRANSLATION = 'awaiting_translation'
 
-
 async def start_training_logic(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
-    """
-    Основная логика начала тренировки, теперь работающая с БД.
-    """
     async with async_session_factory() as session:
-        user = await crud.get_user_settings(session, tg_id=user_id)
+        user = await crud.get_or_create_user(session, tg_id=user_id)
         
-        # Проверяем состояние пользователя в БД
         if user.state == STATE_AWAITING_TRANSLATION:
             await context.bot.send_message(chat_id=chat_id, text="❗️ Пожалуйста, сначала завершите перевод текущей фразы.")
             return
@@ -38,7 +32,6 @@ async def start_training_logic(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
             await context.bot.send_message(chat_id=chat_id, text="😕 Не найдено фраз для ваших настроек.")
             return
 
-        # Устанавливаем состояние в БД
         await crud.update_user_state(session, user_id, STATE_AWAITING_TRANSLATION, phrase.id)
 
     source_lang, _ = user.direction.split('-')
@@ -55,14 +48,11 @@ async def start_training_command(update: Update, context: ContextTypes.DEFAULT_T
     await start_training_logic(context, update.effective_chat.id, update.effective_user.id)
 
 async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Проверяет перевод, основываясь на состоянии из БД.
-    """
     user_id = update.effective_user.id
     user_translation = update.message.text
     
     async with async_session_factory() as session:
-        user = await crud.get_user_settings(session, tg_id=user_id)
+        user = await crud.get_or_create_user(session, tg_id=user_id)
 
         if user.state != STATE_AWAITING_TRANSLATION or not user.current_phrase_id:
             await update.message.reply_text("Чтобы начать, нажмите '▶ Начать тренировку' в меню.")
@@ -71,7 +61,7 @@ async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         original_phrase = await crud.get_phrase_by_id(session, user.current_phrase_id)
         if not original_phrase:
             await update.message.reply_text("Произошла ошибка, не могу найти исходную фразу. Начнем заново.")
-            await crud.update_user_state(session, user_id, None, None) # Очищаем состояние в БД
+            await crud.update_user_state(session, user_id, None, None)
             return
 
     processing_message = await update.message.reply_text("🧠 Анализирую ваш перевод...")
@@ -80,14 +70,12 @@ async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ai_feedback = await gemini.check_user_translation(
             original_phrase=original_phrase,
             user_translation=user_translation,
-            direction=user.direction
+            user=user 
         )
         
         async with async_session_factory() as session:
-            # Важно: user_id здесь это ID из таблицы users, а не tg_id
             await crud.save_user_progress(session, user.id, original_phrase.id, ai_feedback.get('score', 0))
 
-        # ... (код форматирования ответа остается таким же) ...
         score = ai_feedback.get('score', 0)
         correct_translation = escape_markdown(ai_feedback.get('correct_translation', 'N/A'), version=2)
         mistakes = escape_markdown(ai_feedback.get('mistakes', ''), version=2)
@@ -102,15 +90,13 @@ async def check_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboards.after_training_keyboard(user.language)
         )
         
-        # Очищаем состояние в БД после успешного ответа
         async with async_session_factory() as session:
             await crud.update_user_state(session, user_id, None, None)
 
     except (google_exceptions.ResourceExhausted, Exception) as e:
         logger.error(f"Error during translation check for user {user_id}: {e}", exc_info=True)
-        error_message = "😔 Слишком много запросов, я не успеваю." if isinstance(e, google_exceptions.ResourceExhausted) else "😕 Произошла ошибка при обращении к AI. Попробуйте позже."
+        error_message = "😔 Слишком много запросов." if isinstance(e, google_exceptions.ResourceExhausted) else "😕 Ошибка AI. Попробуйте позже."
         await processing_message.edit_text(error_message)
-        # Состояние в БД не очищаем, чтобы пользователь мог повторить попытку
         return
 
 async def next_phrase_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
